@@ -86,8 +86,8 @@ impl ModelScopeRepo {
         Ok(file_path)
     }
 
-    pub async fn get_file_info(&self, file: &str) -> Res<FileInfo> {
-        let repo_file = self.get_repo_file(file).await?;
+    pub async fn get_file_info(&self, path: &str) -> Res<FileInfo> {
+        let repo_file = self.get_repo_file(path).await?;
         let absolute_path = self.save_dir.join(&repo_file.path);
         let existed = tokio::fs::try_exists(&absolute_path).await?;
         let downloading_file_path = self.save_dir.join(format!("{}.downloading", &repo_file.path));
@@ -112,32 +112,32 @@ impl ModelScopeRepo {
         self.repo_files.write().await.replace(repo_files);
     }
 
-    async fn get_repo_file(&self, file: &str) -> Res<RepoFile> {
+    async fn get_repo_file(&self, path: &str) -> Res<RepoFile> {
         let repo_files = self.get_repo_files().await?;
 
         let repo_file = repo_files
             .iter()
-            .find(|f| f.name == file)
+            .find(|f| f.path == path)
             .ok_or_else(|| Error::msg("File not found"))?
             .clone();
 
         Ok(repo_file)
     }
 
-    async fn download(&self, file: &str) -> Res<()> {
+    async fn download(&self, path: &str) -> Res<()> {
         fs::create_dir_all(&self.save_dir)?;
-        let repo_file = self.get_repo_file(file).await?;
+        let repo_file = self.get_repo_file(path).await?;
 
         let bar = ProgressBar::new(repo_file.size);
         let style = ProgressStyle::default_bar().template(BAR_STYLE)?;
         bar.set_style(style);
         bar.set_message(repo_file.name.clone());
 
-        self.download_with_progress(file, bar).await
+        self.download_with_progress(path, bar).await
     }
 
-    pub async fn download_with_progress(&self, file: &str, bar: impl Progress) -> Res<()> {
-        let repo_file = self.get_repo_file(file).await?;
+    pub async fn download_with_progress(&self, path: &str, bar: impl Progress) -> Res<()> {
+        let repo_file = self.get_repo_file(path).await?;
         let file_name = &repo_file.name;
         event!(
             tracing::Level::INFO,

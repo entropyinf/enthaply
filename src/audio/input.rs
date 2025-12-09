@@ -124,8 +124,8 @@ impl AudioInput {
 
 #[derive(Serialize)]
 pub struct HostDevice {
-    host: String,
-    device: String,
+    pub host: String,
+    pub device: String,
 }
 
 impl HostDevice {
