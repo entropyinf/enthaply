@@ -1,7 +1,5 @@
-//! Command-line interface for Z-Image generation
-
 use anyhow::anyhow;
-use candle_core::{utils, DType, Device};
+use candle_core::{DType, Device, utils};
 use candle_nn::VarBuilder;
 use candle_transformers::models::qwen3;
 use candle_transformers::models::stable_diffusion::vae;
@@ -14,6 +12,7 @@ use enthalpy::models::z_image::transformer::ZImageTransformer2DModel;
 use enthalpy::util::modelscope::ModelScopeRepo;
 use std::path::PathBuf;
 use tokenizers::models::bpe::BPE;
+use tracing::Level;
 use z_image::{scheduler, transformer};
 
 #[derive(Parser)]
@@ -70,6 +69,12 @@ struct RequiredPaths {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .compact()
+        .init();
+
     let device = match utils::metal_is_available() {
         true => Device::new_metal(0)?,
         false => match utils::cuda_is_available() {
@@ -78,10 +83,14 @@ async fn main() -> anyhow::Result<()> {
         },
     };
 
+    let model_dir = PathBuf::from("D:/Users/entropy");
+
+    tracing::info!("Loading model from {}", model_dir.display());
+
     // Load or download required files
     let repo = ModelScopeRepo::new(
         "Tongyi-MAI/Z-Image-Turbo",
-        "/Users/entropy/.cache/modelscope/hub/models/",
+        model_dir.join(".cache/modelscope/hub/models"),
     );
     let paths = RequiredPaths {
         tokenizer_vocab: repo.get("tokenizer/vocab.json").await?,
@@ -89,17 +98,16 @@ async fn main() -> anyhow::Result<()> {
         vae_config: repo.get("vae/config.json").await?,
         vae: repo.get("vae/diffusion_pytorch_model.safetensors").await?,
         text_encoder_config: repo.get("text_encoder/config.json").await?,
-        text_encoder: PathBuf::from(
-            "/Users/entropy/Documents/ComfyUI/models/text_encoders/qwen_3_4b.safetensors",
-        ),
+        text_encoder: PathBuf::from("D:/ComfyUI/models/text_encoders/qwen_3_4b.safetensors"),
         transformer_config: repo.get("transformer/config.json").await?,
         transformer: PathBuf::from(
-            "/Users/entropy/Documents/ComfyUI/models/diffusion_models/z_image_turbo_bf16.safetensors",
+            "D:/ComfyUI/models/diffusion_models/z_image_turbo_bf16.safetensors",
         ),
     };
 
     // Load the tokenizer
     let tokenizer = {
+        tracing::info!("Loading tokenizer from {}", paths.tokenizer_vocab.display());
         let vocab = paths
             .tokenizer_vocab
             .to_str()
@@ -115,6 +123,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Load the VAE
     let vae = {
+        tracing::info!("Loading VAE from {}", paths.vae.display());
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[paths.vae], DType::F32, &device)? };
         let config = std::fs::read(paths.vae_config)?;
         #[derive(serde::Deserialize)]
@@ -140,6 +149,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Load the text encoder
     let text_encoder = {
+        tracing::info!("Loading text encoder from {}", paths.text_encoder.display());
         let config = std::fs::read(paths.text_encoder_config)?;
         let config = serde_json::from_slice::<qwen3::Config>(&config)?;
         let vb = unsafe {
@@ -150,9 +160,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Load the transformer
     let transformer = {
+        tracing::info!("Loading transformer from {}", paths.transformer.display());
         let config = std::fs::read(paths.transformer_config)?;
-        let config: transformer::ZImageTransformerConfig =
-            serde_json::from_slice(&config)?;
+        let config: transformer::ZImageTransformerConfig = serde_json::from_slice(&config)?;
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&[paths.transformer], DType::F32, &device)
         }?;
@@ -177,12 +187,6 @@ async fn main() -> anyhow::Result<()> {
         guidance_scale: args.guidance_scale,
         seed: args.seed,
     };
-
-    println!("Generating image with prompt: '{}'", args.prompt);
-    println!("Image dimensions: {}x{}", args.height, args.width);
-    println!("Inference steps: {}", args.num_inference_steps);
-    println!("Guidance scale: {}", args.guidance_scale);
-    println!("Seed: {}", args.seed);
 
     let image_data = model.generate(&args.prompt, config)?;
 

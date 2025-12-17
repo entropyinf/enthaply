@@ -1,3 +1,4 @@
+#[cfg(feature = "audio")]
 pub mod audio;
 mod config;
 #[allow(dead_code)]

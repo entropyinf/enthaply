@@ -5,7 +5,6 @@ use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufWriter, Seek, Write};
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -92,7 +91,7 @@ impl ModelScopeRepo {
         let existed = tokio::fs::try_exists(&absolute_path).await?;
         let downloading_file_path = self.save_dir.join(format!("{}.downloading", &repo_file.path));
         let downloaded_size = match tokio::fs::metadata(&downloading_file_path).await {
-            Ok(meta) => {meta.size()}
+            Ok(meta) => {meta.len()}
             Err(_) => {0}
         };
 
