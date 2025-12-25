@@ -513,14 +513,15 @@ impl ZImageTransformer2DModel {
             let x_embedder = candle_nn::linear(
                 f_patch_size * patch_size * patch_size * config.in_channels,
                 config.dim,
-                vb.pp(format!("all_x_embedder.{}", key)),
+                vb.pp("x_embedder"),
             )?;
             all_x_embedder.insert(key.clone(), x_embedder);
+
 
             let final_layer = FinalLayer::new(
                 config.dim,
                 patch_size * patch_size * f_patch_size * config.in_channels,
-                vb.pp(format!("all_final_layer.{}", key)),
+                VarBuilder::zeros(vb.dtype, vb.device()),
             )?;
             all_final_layer.insert(key, final_layer);
         }

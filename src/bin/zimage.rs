@@ -104,6 +104,17 @@ async fn main() -> anyhow::Result<()> {
             "D:/ComfyUI/models/diffusion_models/z_image_turbo_bf16.safetensors",
         ),
     };
+    
+    // Load the transformer
+    let transformer = {
+        tracing::info!("Loading transformer from {}", paths.transformer.display());
+        let config = std::fs::read(paths.transformer_config)?;
+        let config: transformer::ZImageTransformerConfig = serde_json::from_slice(&config)?;
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[paths.transformer], DType::F32, &device)
+        }?;
+        ZImageTransformer2DModel::new(config, vb)?
+    };
 
     // Load the tokenizer
     let tokenizer = {
@@ -158,16 +169,6 @@ async fn main() -> anyhow::Result<()> {
         Box::from(Qwen3TextEncoder::new(&config, vb)?)
     };
 
-    // Load the transformer
-    let transformer = {
-        tracing::info!("Loading transformer from {}", paths.transformer.display());
-        let config = std::fs::read(paths.transformer_config)?;
-        let config: transformer::ZImageTransformerConfig = serde_json::from_slice(&config)?;
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[paths.transformer], DType::F32, &device)
-        }?;
-        ZImageTransformer2DModel::new(config, vb)?
-    };
 
     // Init the scheduler
     let scheduler = scheduler::FlowMatchEulerDiscreteScheduler::new(1000, 1.0, false);
