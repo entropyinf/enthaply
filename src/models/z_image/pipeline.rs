@@ -46,7 +46,7 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn generate(&mut self, prompt: &str, config: GenerateConfig) -> Result<Vec<u8>> {
+    pub fn generate(&mut self, prompt: &str, config: GenerateConfig) -> Result<Tensor> {
         let device = &Device::Cpu;
 
         let vae_scale_factor = 8;
@@ -72,12 +72,8 @@ impl Model {
             .collect::<Vec<u32>>();
 
         let length = tokens.len();
-
         let tokens = Tensor::from_vec(tokens, (1, length), &device)?;
-        println!("Token ids: {:?}", tokens);
-
         let prompt_embeds = self.text_encoder.forward(&tokens)?;
-        println!("Prompt embeddings: {:?}", prompt_embeds);
 
         // Prepare latent variables
         let batch_size = 1;
@@ -127,18 +123,13 @@ impl Model {
                 None,
             )?;
 
-            // Compute previous noisy sample
-            // 使用组件中的 scheduler 进行 step 操作，避免重复借用问题
             current_latents =
                 self.scheduler
                     .step(&noise_pred.squeeze(2)?, timestep, &current_latents)?;
         }
 
-        // Decode latents
         let decoded = self.vae.decode(&current_latents)?;
 
-        // Convert to image bytes (placeholder)
-        // In a real implementation, this would convert the tensor to RGB bytes
-        Ok(vec![0; 1024]) // Placeholder return
+        Ok(decoded)
     }
 }

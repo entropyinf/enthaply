@@ -19,7 +19,6 @@ lto = "thin"
 debug = false
 panic = "abort"
 strip = "symbols"
-incremental = true
 codegen-units = 1
 
 [dependencies]
@@ -28,7 +27,7 @@ tracing = "0.1.41"
 serde = { version = "^1", features = ["derive"] }
 serde_json = "^1"
 futures-util = "0.3.31"
-rand = "0.10.0-rc.5"
+rand = "0.9.2"
 tokio = { version = "^1", features = ["rt-multi-thread", "macros"] }
 clap = { version = "4.5.46", features = ["derive"] }
 tracing-subscriber = { version = "^0.3", features = ["env-filter"] }
