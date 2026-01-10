@@ -1,9 +1,11 @@
 //! Z-Image pipeline implementation
 
+use crate::Res;
 use crate::models::z_image::scheduler::FlowMatchEulerDiscreteScheduler;
 use crate::models::z_image::transformer::ZImageTransformer2DModel;
 use crate::models::z_image::utils::{calculate_shift, rand_latents};
-use candle_core::{Device, Module, Result, Tensor, bail, error};
+use anyhow::bail;
+use candle_core::{Device, Module, Tensor, error};
 use candle_transformers::models::stable_diffusion;
 use stable_diffusion::vae;
 use tokenizers::Tokenizer;
@@ -46,7 +48,7 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn generate(&mut self, prompt: &str, config: GenerateConfig) -> Result<Tensor> {
+    pub fn generate(&mut self, prompt: &str, config: GenerateConfig) -> Res<Tensor> {
         let device = &Device::Cpu;
 
         let vae_scale_factor = 8;

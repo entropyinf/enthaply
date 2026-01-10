@@ -1,8 +1,11 @@
 use crate::models::z_image::feed_foward::FeedForward;
 use crate::models::z_image::rope_embedder::RopeEmbedder;
 use crate::models::z_image::timestep_embedder::TimestepEmbedder;
+use crate::quantized_nn::{Linear as QLinear, RmsNorm};
+use crate::quantized_var_builder::VarBuilder as QVarBuilder;
+use crate::{Res, quantized_nn};
 use candle_core::{DType, Device, IndexOp, Result, Tensor};
-use candle_nn::{Activation, LayerNorm, LayerNormConfig, Linear, Module, RmsNorm, VarBuilder};
+use candle_nn::{Activation, Module};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -132,28 +135,18 @@ impl Default for ZImageTransformerConfig {
 }
 
 struct FinalLayer {
-    norm_final: LayerNorm,
-    linear: Linear,
+    norm_final: candle_nn::LayerNorm,
+    linear: QLinear,
     ada_ln_modulation: candle_nn::Sequential,
 }
 
 impl FinalLayer {
-    fn new(hidden_size: usize, out_channels: usize, vb: VarBuilder) -> Result<Self> {
-        let norm_final = candle_nn::layer_norm(
-            hidden_size,
-            LayerNormConfig {
-                eps: 1e-6,
-                remove_mean: true,
-                affine: false,
-            },
-            vb.pp("norm_final"),
-        )?;
-
-        let linear = candle_nn::linear(hidden_size, out_channels, vb.pp("linear"))?;
-
+    fn new(hidden_size: usize, out_channels: usize, vb: QVarBuilder) -> Res<Self> {
+        let norm_final = quantized_nn::layer_norm(hidden_size, 1e-6, vb.pp("norm_final"))?;
+        let linear = quantized_nn::linear_no_bias(hidden_size, out_channels, vb.pp("linear"))?;
         let ada_ln_modulation = candle_nn::seq()
             .add(Activation::Silu)
-            .add(candle_nn::linear(
+            .add(quantized_nn::linear(
                 hidden_size.min(ADALN_EMBED_DIM),
                 hidden_size,
                 vb.pp("adaLN_modulation.1"),
@@ -194,12 +187,12 @@ impl ZImageTransformerBlock {
         norm_eps: f64,
         qk_norm: bool,
         modulation: bool,
-        vb: VarBuilder,
-    ) -> Result<Self> {
-        let attention_norm1 = candle_nn::rms_norm(dim, norm_eps, vb.pp("attention_norm1"))?;
-        let ffn_norm1 = candle_nn::rms_norm(dim, norm_eps, vb.pp("ffn_norm1"))?;
-        let attention_norm2 = candle_nn::rms_norm(dim, norm_eps, vb.pp("attention_norm2"))?;
-        let ffn_norm2 = candle_nn::rms_norm(dim, norm_eps, vb.pp("ffn_norm2"))?;
+        vb: QVarBuilder,
+    ) -> Res<Self> {
+        let attention_norm1 = RmsNorm::new(dim, norm_eps, vb.pp("attention_norm1"))?;
+        let ffn_norm1 = RmsNorm::new(dim, norm_eps, vb.pp("ffn_norm1"))?;
+        let attention_norm2 = RmsNorm::new(dim, norm_eps, vb.pp("attention_norm2"))?;
+        let ffn_norm2 = RmsNorm::new(dim, norm_eps, vb.pp("ffn_norm2"))?;
 
         let attention = ZImageAttention::new(
             dim,
@@ -212,7 +205,7 @@ impl ZImageTransformerBlock {
         let feed_forward = FeedForward::new(dim, dim * 8 / 3, vb.pp("feed_forward"))?;
 
         let ada_ln_modulation = if modulation {
-            Some(candle_nn::seq().add(candle_nn::linear(
+            Some(candle_nn::seq().add(crate::quantized_nn::linear(
                 dim.min(ADALN_EMBED_DIM),
                 4 * dim,
                 vb.pp("adaLN_modulation.0"),
@@ -282,8 +275,8 @@ impl ZImageTransformerBlock {
 }
 
 struct ZImageAttention {
-    qkv: Linear,
-    out: Linear,
+    qkv: QLinear,
+    out: QLinear,
     norm_q: Option<RmsNorm>,
     norm_k: Option<RmsNorm>,
     n_heads: usize,
@@ -298,21 +291,24 @@ impl ZImageAttention {
         n_kv_heads: usize,
         qk_norm: bool,
         eps: f64,
-        vb: VarBuilder,
-    ) -> Result<Self> {
+        vb: QVarBuilder,
+    ) -> Res<Self> {
         let head_dim = dim / n_heads;
-        let qkv =
-            candle_nn::linear_no_bias(dim, (n_heads + 2 * n_kv_heads) * head_dim, vb.pp("qkv"))?;
-        let out = candle_nn::linear_no_bias(n_heads * head_dim, dim, vb.pp("out"))?;
+        let qkv = crate::quantized_nn::linear_no_bias(
+            dim,
+            (n_heads + 2 * n_kv_heads) * head_dim,
+            vb.pp("qkv"),
+        )?;
+        let out = crate::quantized_nn::linear_no_bias(n_heads * head_dim, dim, vb.pp("out"))?;
 
         let norm_q = if qk_norm {
-            Some(candle_nn::rms_norm(head_dim, eps, vb.pp("q_norm"))?)
+            Some(RmsNorm::new(head_dim, eps, vb.pp("q_norm"))?)
         } else {
             None
         };
 
         let norm_k = if qk_norm {
-            Some(candle_nn::rms_norm(head_dim, eps, vb.pp("k_norm"))?)
+            Some(RmsNorm::new(head_dim, eps, vb.pp("k_norm"))?)
         } else {
             None
         };
@@ -452,7 +448,7 @@ impl ZImageAttention {
 
 pub struct ZImageTransformer2DModel {
     config: ZImageTransformerConfig,
-    x_embedders: HashMap<String, Linear>,
+    x_embedders: HashMap<String, QLinear>,
     final_layers: HashMap<String, FinalLayer>,
     noise_refiner: Vec<ZImageTransformerBlock>,
     context_refiner: Vec<ZImageTransformerBlock>,
@@ -467,7 +463,7 @@ pub struct ZImageTransformer2DModel {
 }
 
 impl ZImageTransformer2DModel {
-    pub fn new(config: ZImageTransformerConfig, vb: VarBuilder) -> Result<Self> {
+    pub fn new(config: ZImageTransformerConfig, vb: QVarBuilder) -> Res<Self> {
         let mut x_embedders = HashMap::new();
         let mut final_layers = HashMap::new();
 
@@ -477,7 +473,7 @@ impl ZImageTransformer2DModel {
             .zip(config.all_f_patch_size.iter())
         {
             let key = format!("{}-{}", patch_size, f_patch_size);
-            let x_embedder = candle_nn::linear(
+            let x_embedder = crate::quantized_nn::linear(
                 f_patch_size * patch_size * patch_size * config.in_channels,
                 config.dim,
                 vb.pp("x_embedder"),
@@ -487,7 +483,7 @@ impl ZImageTransformer2DModel {
             let final_layer = FinalLayer::new(
                 config.dim,
                 patch_size * patch_size * f_patch_size * config.in_channels,
-                VarBuilder::zeros(vb.dtype, vb.device()),
+                vb.pp("final_layer"),
             )?;
             final_layers.insert(key, final_layer);
         }
@@ -527,19 +523,23 @@ impl ZImageTransformer2DModel {
         )?;
 
         let cap_embedder = candle_nn::seq()
-            .add(candle_nn::rms_norm(
+            .add(RmsNorm::new(
                 config.cap_feat_dim,
                 config.norm_eps,
                 vb.pp("cap_embedder.0"),
             )?)
-            .add(candle_nn::linear(
+            .add(crate::quantized_nn::linear(
                 config.cap_feat_dim,
                 config.dim,
                 vb.pp("cap_embedder.1"),
             )?);
 
-        let x_pad_token = vb.get((1, config.dim), "x_pad_token")?;
-        let cap_pad_token = vb.get((1, config.dim), "cap_pad_token")?;
+        let x_pad_token = vb
+            .get((1, config.dim), "x_pad_token")?
+            .dequantize(&vb.device())?;
+        let cap_pad_token = vb
+            .get((1, config.dim), "cap_pad_token")?
+            .dequantize(&vb.device())?;
 
         let mut layers = Vec::new();
         for layer_id in 0..config.n_layers {

@@ -1,5 +1,3 @@
-//! Utility functions for Z-Image
-
 use candle_core::{Device, Result, Tensor};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};

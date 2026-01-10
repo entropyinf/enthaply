@@ -1,11 +1,12 @@
 use candle_core::{Module, Tensor};
 use candle_transformers::models::qwen3::{Config, Model};
 use std::sync::RwLock;
+use crate::Res;
 
 pub struct Qwen3TextEncoder(RwLock<Model>);
 
 impl Qwen3TextEncoder {
-    pub fn new(cfg: &Config, vb: candle_nn::VarBuilder) -> candle_core::Result<Self> {
+    pub fn new(cfg: &Config, vb: candle_nn::VarBuilder) -> Res<Self> {
         Ok(Self(RwLock::new(Model::new(&cfg, vb)?)))
     }
 }

@@ -1,5 +1,7 @@
 use candle_core::{Module, Tensor};
-use candle_nn::{Linear, VarBuilder};
+use crate::quantized_nn::Linear;
+use crate::quantized_var_builder::VarBuilder;
+use crate::Res;
 
 #[derive(Debug)]
 pub struct FeedForward {
@@ -9,10 +11,10 @@ pub struct FeedForward {
 }
 
 impl FeedForward {
-    pub fn new(dim: usize, hidden_dim: usize, vb: VarBuilder) -> candle_core::Result<Self> {
-        let w1 = candle_nn::linear_no_bias(dim, hidden_dim, vb.pp("w1"))?;
-        let w2 = candle_nn::linear_no_bias(hidden_dim, dim, vb.pp("w2"))?;
-        let w3 = candle_nn::linear_no_bias(dim, hidden_dim, vb.pp("w3"))?;
+    pub fn new(dim: usize, hidden_dim: usize, vb: VarBuilder) -> Res<Self> {
+        let w1 = crate::quantized_nn::linear_no_bias(dim, hidden_dim, vb.pp("w1"))?;
+        let w2 = crate::quantized_nn::linear_no_bias(hidden_dim, dim, vb.pp("w2"))?;
+        let w3 = crate::quantized_nn::linear_no_bias(dim, hidden_dim, vb.pp("w3"))?;
         Ok(Self { w1, w2, w3 })
     }
 }

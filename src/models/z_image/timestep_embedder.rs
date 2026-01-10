@@ -1,5 +1,6 @@
+use crate::quantized_var_builder::VarBuilder;
+use crate::{Res, quantized_nn};
 use candle_core::{DType, Module, Tensor};
-use candle_nn::{Activation, VarBuilder};
 
 const FREQUENCY_EMBEDDING_SIZE: usize = 256;
 const MAX_PERIOD: f64 = 10000.0;
@@ -10,20 +11,16 @@ pub struct TimestepEmbedder {
 }
 
 impl TimestepEmbedder {
-    pub fn new(
-        out_size: usize,
-        mid_size: Option<usize>,
-        vb: VarBuilder,
-    ) -> candle_core::Result<Self> {
+    pub fn new(out_size: usize, mid_size: Option<usize>, vb: VarBuilder) -> Res<Self> {
         let mid_size = mid_size.unwrap_or(out_size);
         let mlp = candle_nn::seq()
-            .add(candle_nn::linear(
+            .add(quantized_nn::linear(
                 FREQUENCY_EMBEDDING_SIZE,
                 mid_size,
                 vb.pp("mlp.0"),
             )?)
-            .add(Activation::Silu)
-            .add(candle_nn::linear(mid_size, out_size, vb.pp("mlp.2"))?);
+            .add(candle_nn::Activation::Silu)
+            .add(quantized_nn::linear(mid_size, out_size, vb.pp("mlp.2"))?);
 
         Ok(Self {
             mlp,
